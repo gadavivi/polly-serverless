@@ -1,0 +1,100 @@
+# Welcome to Serverless!
+#
+# This file is the main config file for your service.
+# It's very minimal at this point and uses default values.
+# You can always add more config options for more control.
+# We've included some commented out config examples here.
+# Just uncomment any of them to get that config option.
+#
+# For full config options, check the docs:
+#    docs.serverless.com
+#
+# Happy Coding!
+
+service: polly-aws # NOTE: update this with your service name
+
+# You can pin your service to only deploy with a specific Serverless version
+# Check out our docs for more details
+# frameworkVersion: "=X.X.X"
+provider:
+  name: aws
+  runtime: python2.7
+  stage: ${opt:stage}
+  environment:
+    DYNAMODB_TABLE: ${self:service}-${opt:stage, self:provider.stage}
+    BUCKET_NAME: '${file(./serverless.env.yml):${opt:stage}.BUCKET_NAME}'
+    SNS_TOPIC: '${file(./serverless.env.yml):${opt:stage}.SNS_TOPIC}'
+    AWS_ACC_ID: '${file(./serverless.env.yml):${opt:stage}.AWS_ACC_ID}'
+    ARN_TOPIC: "arn:aws:sns:${opt:region, self:provider.region}:${self:provider.environment.AWS_ACC_ID}:${self:provider.environment.SNS_TOPIC}"
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - dynamodb:Query
+        - dynamodb:Scan
+        - dynamodb:GetItem
+        - dynamodb:PutItem
+        - dynamodb:UpdateItem
+      Resource: "arn:aws:dynamodb:${opt:region, self:provider.region}:*:table/${self:provider.environment.DYNAMODB_TABLE}"
+    - Effect: Allow
+      Action:
+        - sns:Publish
+      Resource: ${self:provider.environment.ARN_TOPIC}
+      
+    - Effect: Allow
+      Action:
+        - s3:PutObject
+        - s3:PutObjectAcl
+      Resource: "arn:aws:s3:::${self:provider.environment.BUCKET_NAME}/*"
+    - Effect: Allow
+      Action:
+        - s3:GetBucketLocation
+      Resource: "*"
+    - Effect: Allow
+      Action:
+      - polly:SynthesizeSpeech
+      Resource: "*"
+
+functions:
+  get_post:
+    handler: src/get_post.get_post
+    events:
+      - http:
+          path: /
+          method: get
+          cors: true
+  new_post:
+    handler: src/new_post.new_post
+    events:
+      - http:
+          path: /
+          method: post
+          cors: true
+    
+  analyze_post:
+    handler: src/convert_to_video.convert_to_video
+    events:
+        - sns: ${self:provider.environment.SNS_TOPIC}
+      
+resources:
+  Resources:
+    posts:
+      Type: 'AWS::DynamoDB::Table'
+      DeletionPolicy: Retain
+      Properties:
+        AttributeDefinitions:
+          -
+            AttributeName: id
+            AttributeType: S
+        KeySchema:
+          -
+            AttributeName: id
+            KeyType: HASH
+        ProvisionedThroughput:
+          ReadCapacityUnits: 1
+          WriteCapacityUnits: 1
+        TableName: ${self:provider.environment.DYNAMODB_TABLE}
+
+    S3BucketMp3:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:provider.environment.BUCKET_NAME}
